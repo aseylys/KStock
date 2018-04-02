@@ -152,7 +152,7 @@ class MainWindow(base, form):
                             round(float(pos['average_buy_price']), 2), 
                             round(float(pos['average_buy_price']) - (float(pos['average_buy_price']) * 0.1), 2)
                         )
-                        self.purchase(ticker)
+                        self.hTicks.append(ticker)
                         ticker.purchase(
                             self.purPrice, 
                             self.currStrat, 
@@ -160,6 +160,7 @@ class MainWindow(base, form):
                             rhood,
                             self.afterHours()
                         )
+                        self.totalCost.setText('%.2f' % (float(self.totalCost.text()) - float(ticker.Q * ticker.AP)))
 
 
     def warn(self, warn):
