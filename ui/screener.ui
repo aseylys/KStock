@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Form</class>
+ <widget class="QWidget" name="Form">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>495</width>
+    <height>483</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Form</string>
+  </property>
+  <layout class="QGridLayout" name="gridLayout">
+   <item row="0" column="1">
+    <widget class="QComboBox" name="comboBox">
+     <item>
+      <property name="text">
+       <string>Most Volatile</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Top Gainers</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Top Losers</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>New High</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>New Low</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Most Active</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Unusual Volume</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Overbought</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Oversold</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Downgrades</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Upgrades</string>
+      </property>
+     </item>
+    </widget>
+   </item>
+   <item row="0" column="0">
+    <widget class="QLabel" name="label">
+     <property name="text">
+      <string>Signal</string>
+     </property>
+    </widget>
+   </item>
+   <item row="1" column="0" colspan="2">
+    <widget class="QFrame" name="frame">
+     <property name="frameShape">
+      <enum>QFrame::StyledPanel</enum>
+     </property>
+     <property name="frameShadow">
+      <enum>QFrame::Raised</enum>
+     </property>
+     <layout class="QGridLayout" name="gridLayout_2">
+      <item row="0" column="1">
+       <widget class="QComboBox" name="comboBox_2">
+        <item>
+         <property name="text">
+          <string>NASDAQ</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>NYSE</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item row="0" column="0">
+       <widget class="QLabel" name="label_2">
+        <property name="text">
+         <string>Exchange</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="2">
+       <widget class="QLabel" name="label_3">
+        <property name="text">
+         <string>Sector</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="3">
+       <widget class="QComboBox" name="comboBox_3">
+        <item>
+         <property name="text">
+          <string>Any</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Basic Materials</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Conglomerates</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Consumer Goods</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Financial</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Healthcare</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Industrial Goods</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Services</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Technology</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Utilities</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

@@ -1,0 +1,8 @@
+pyqt5
+holidays
+pyqtgraph
+pandas
+h5py
+bs4
+html5lib
+demjson
