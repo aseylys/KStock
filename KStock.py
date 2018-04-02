@@ -35,7 +35,7 @@ class MainWindow(base, form):
     def __init__(self):
         super(base, self).__init__()
         self.setupUi(self)
-        
+
         self.currStrat = 'ST'
         self.qTicks, self.hTicks = [], []
         self.graphData = [[],[]]
@@ -198,6 +198,7 @@ class MainWindow(base, form):
         if api.exec_():
             self.rUser = api.user
             self.rPass = api.password
+            data = {'Queue': [], 'API': {'Password': self.rPass, 'User': self.rUser}}
             logging.info('Successfully Created Keys and Config')
             self.autosave()
             self.trader = Robinhood()
@@ -205,7 +206,7 @@ class MainWindow(base, form):
                 self.trader.login(username = self.rUser, password = self.rPass)
                 logging.info('Successfully Logged Into Robinhood')
                 if not self.qModel:
-                    self.startup()
+                    self.startup(data)
                 self.update()
             except requests.exceptions.HTTPError:
                 logging.error('Unsuccessful Login For Robinhood')
