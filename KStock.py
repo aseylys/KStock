@@ -11,9 +11,6 @@ consoleHandler = logging.StreamHandler(sys.stdout)
 consoleHandler.setFormatter(logFormat)
 rootLog.addHandler(consoleHandler)
 
-#logging.basicConfig(filename = 'TradeLogs.log', filemode = 'w', 
-#       format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s', level = logging.INFO)
-
 import os, datetime, pytz, holidays, json, requests, sys
 from PyQt5.QtWidgets import QApplication, QWidget, QMessageBox
 from PyQt5.QtWidgets import QMenu, QTableWidget
@@ -505,14 +502,10 @@ class MainWindow(base, form):
             logging.info('~~~~ Connection Error: {} ~~~~'.format(e))
             return
 
-        xdict = dict(enumerate(self.graphData[0]))
-
         #Set the Equity to current value depending on if it's aH or not
         if self.afterHours():
             self.holdLabel.setText('%.2f' % (float(self.portfolio['extended_hours_equity'])))
 
-            ax = self.graph.getAxis('bottom')
-            ax.setTicks([xdict.items()])
             #Disable Trading aH
             if not TESTING:
                 if not self.startBut.isEnabled():
@@ -523,8 +516,14 @@ class MainWindow(base, form):
 
             if self.portfolio['equity']:
                 #Plt that stuff if it's during the trading day
+                
                 self.graphData[0].append(now.strftime('%H:%M:%S'))
                 self.graphData[1].append(float(self.portfolio['equity']))
+
+                xdict = dict(enumerate(self.graphData[0]))
+                ax = self.graph.getAxis('bottom')
+                ax.setTicks([xdict.items()])
+                
                 self.graph.plot(list(xdict.keys()), self.graphData[1], pen = self.ePen, clear = False)
 
         self.marginLabel.setText('%.2f' % (float(self.portfolio['withdrawable_amount'])))
