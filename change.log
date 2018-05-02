@@ -1,0 +1,27 @@
+# Changelog
+
+
+
+## KStock V1.0 - 02 May 18
+
+### Added
+- Dow, NASDAQ and S&P tracker bar
+- 'Dump All' button to sell-off all holdings instantly
+
+### Little Stuff
+- Ticker Sell logic now dependent on whether the S&P is green or red
+- Fixed ticker previous price set
+- Fixed logic for penny (<$1.00) stocks, handles the decimals better
+- Fixed Transaction table functionality (for now)
+- Fixed small bugs here and there, added some new ones
+
+### Big Ticket Items
+- Tick objects now include a peak detection algorithm that provides a safer and more accurate oppurtunity to buy/sell the tick
+- Changed how KStock calls Robinhood. Trying to be a better netizen
+- MiddleMan list, allows for verification that the order in Robinhood was successful
+- Allowed to have stocks not be tradeable (with fancy CheckBox integration)
+- Updated day trading resource logic to handle how RH deals with day trading
+
+### Still Need To Do
+- Choose the order type (market/limit)
+- Cancel order if it's been unfilled for awhile

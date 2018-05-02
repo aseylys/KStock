@@ -1,29 +1,11 @@
-""" ComboBoxDelegateQt.py: Delegate for editing a list of choices via a combobox.
-
-Choices can be a list of values (e.g. [1, 3, 10, 100])
-or a list of (key, value) tuples (e.g. [('A', MyObject()), ('B', MyObject())]).
-In the latter case, the view only displays the keys (e.g. 'A', 'B') whereas
-the model data reflects the values (e.g. MyObject instances).
-"""
-
-
 import copy
-try:
-    from PyQt5.QtCore import Qt, QVariant
-    from PyQt5.QtWidgets import QStyledItemDelegate, QComboBox
-except ImportError:
-    try:
-        from PyQt4.QtCore import Qt, QVariant
-        from PyQt4.QtGui import QStyledItemDelegate, QComboBox
-    except ImportError:
-        raise ImportError("ComboBoxDelegateQt: Requires PyQt5 or PyQt4.")
-
-
-__author__ = "Marcel Goldschen-Ohm <marcel.goldschen@gmail.com>"
+from PyQt5.QtCore import Qt, QVariant
+from PyQt5.QtWidgets import QStyledItemDelegate, QComboBox
 
 
 class ComboBoxDelegateQt(QStyledItemDelegate):
-    """ Delegate for editing a list of choices via a combobox.
+    ''' 
+    Delegate for editing a list of choices via a combobox.
     The choices attribute is a list of either values or (key, value) tuples.
     In the first case, the str rep of the values are directly displayed in the combobox.
     In the latter case, the str rep of only the keys are displayed in the combobox, and the values can be any object.
@@ -37,14 +19,16 @@ class ComboBoxDelegateQt(QStyledItemDelegate):
         To select from two of your custom objects, set choices = [('A', MyObject()), ('B', MyObject())]
             Combobox entries will be 'A' and 'B'.
             Upon selection model data will be set to the selected MyObject instance and view will show its key (either 'A' or 'B')..
-    """
-    def __init__(self, choices=None, parent=None):
+    '''
+    def __init__(self, choices = None, parent = None):
         QStyledItemDelegate.__init__(self, parent)
         self.choices = choices if (choices is not None and type(choices) is list) else []
 
+
     def createEditor(self, parent, option, index):
-        """ Return QComboBox with list of choices (either values or their associated keys if they exist).
-        """
+        '''
+        Return QComboBox with list of choices (either values or their associated keys if they exist).
+        '''
         try:
             editor = QComboBox(parent)
             value = index.model().data(index, Qt.DisplayRole)
@@ -64,9 +48,11 @@ class ComboBoxDelegateQt(QStyledItemDelegate):
         except:
             return None
 
+
     def setModelData(self, editor, model, index):
-        """ Set model data to current choice (if choice is a key, set data to its associated value).
-        """
+        ''' 
+        Set model data to current choice (if choice is a key, set data to its associated value).
+        '''
         try:
             choice = self.choices[editor.currentIndex()]
             if (type(choice) is tuple) and (len(choice) == 2):
@@ -81,9 +67,11 @@ class ComboBoxDelegateQt(QStyledItemDelegate):
         except:
             pass
 
+
     def displayText(self, value, locale):
-        """ Show str rep of current choice (or choice key if choice is a (key, value) tuple).
-        """
+        ''' 
+        Show str rep of current choice (or choice key if choice is a (key, value) tuple).
+        '''
         try:
             if type(value) == QVariant:
                 value = value.toPyObject()  # QVariant ==> object

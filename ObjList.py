@@ -84,7 +84,7 @@ class ObjListTableModel(QAbstractTableModel):
     :param isDynamic (bool): If True, objects can be inserted/deleted, otherwise not.
     :param templateObject (object): Object that will be deep copied to create new objects when inserting into the list.
     """
-    def __init__(self, objects=None, properties=None, isRowObjects=True, isDynamic=True, templateObject=None, parent=None):
+    def __init__(self, objects = None, properties = None, isRowObjects = True, isDynamic = True, templateObject = None, parent = None):
         QAbstractTableModel.__init__(self, parent)
         self.objects = objects if (objects is not None) else []
         self.properties = properties if (properties is not None) else []
@@ -436,16 +436,18 @@ class Transactions(QTableWidget):
     def sold(self, tick):
         results = self.findItems(tick.T, Qt.MatchExactly)
         if results:
-            if len(results) > 1:
-                for row in results:
-                    if not self.item(row.row(), 3):
-                        tItem = QTableWidgetItem(str(tick.C))
-                        tItem.setTextAlignment(Qt.AlignCenter)
-                        self.setItem(row.row(), 3, tItem)
+            for row in results:
+                _row = row.row()
+                if not self.item(_row, 3).text():
+                    tItem = QTableWidgetItem(str(tick.C))
+                    tItem.setTextAlignment(Qt.AlignCenter)
+                    self.setItem(_row, 3, tItem)
 
-                        for j in range(self.columnCount()):
-                            if tick.prevProfit > 0:
-                                self.item(row.row(), j).setBackground(color('green'))
-                            else:
-                                self.item(row.row(), j).setBackground(color('red'))
+                    for j in range(self.columnCount()):
+                        if tick.prevProfit > 0:
+                            self.item(_row, j).setBackground(color('G'))
+                        elif tick.prevProfit < 0:
+                            self.item(_row, j).setBackground(color('R'))
+                        else:
+                            self.item(_row, j).setBackground(color('NA'))
 

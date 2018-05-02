@@ -17,7 +17,8 @@ from PyQt5.QtWidgets import QMenu, QTableWidget
 from PyQt5 import uic, QtCore, QtGui
 from ObjList import ObjListTableModel, ObjListTable
 from Robinhood import Robinhood, exceptions
-import resources.gfc as gfc
+from resources.rHood import robinTick, robinTicks
+from resources.Markets import fetchMarkets
 from Helpers import *
 import pyqtgraph as pg
 from Tick import Tick
@@ -33,10 +34,13 @@ class MainWindow(base, form):
         super(base, self).__init__()
         self.setupUi(self)
 
-        self.currStrat = 'ST'
-        self.qTicks, self.hTicks = [], []
+        self.qTicks, self.hTicks, self.midTicks = [], [], []
         self.graphData = [[],[]]
         self.qModel, self.hModel = None, None
+        self.spy = 'G'
+
+        #Day trading cost which doesn't factor in sales
+        self._dtCost = 0
 
         #Sets the eastern timezone
         self.tz = pytz.timezone('US/Eastern')
@@ -55,6 +59,7 @@ class MainWindow(base, form):
         self.pauseBut.clicked.connect(self.tradeActs)
         self.actionAPI.triggered.connect(self.api)
         self.budgetBox.valueChanged.connect(self.budgetHandler)
+        self.dumpBut.clicked.connect(lambda : self.dump(True))
 
         #Create Context Menu if right clicked
         self.queue.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
@@ -110,7 +115,6 @@ class MainWindow(base, form):
         Returns:
             None
         '''
-        self.qTicks = [Tick(tick, self.purPrice.value(), self.trader) for tick in data['Queue']]
         qproperties = [
             {'attr' : 'T', 'header' : 'Ticker'},
             {'attr' : 'C', 'header' : 'Price'},
@@ -121,13 +125,14 @@ class MainWindow(base, form):
             {'attr' : 'C', 'header' : 'Price'},
             {'attr' : 'Q', 'header' : 'Quantity'},
             {'attr' : 'AP', 'header' : 'Avg Price'},
-            {'attr' : 'SL', 'header' : 'Stop Loss'}
+            {'attr' : 'SL', 'header' : 'Stop Loss'},
+            {'attr' : 'tradeable', 'header' : 'Tradeable'}
         ]
 
-        #These models are neat because they actually contain the Tick objects, not just data
-        #When adding to a table, you're adding the actual Tick to it
+        #These models are neat because they actually contain the Tick objects themselves, not just
+        #the object's data. When adding to a table, you're adding the actual Tick object to it
         self.qModel = ObjListTableModel(self.qTicks, qproperties, isRowObjects = True, isDynamic = True)
-        self.hModel = ObjListTableModel(self.hTicks, hproperties, isRowObjects = True, isDynamic = True)
+        self.hModel = ObjListTableModel(self.hTicks, hproperties, isRowObjects = True, isDynamic = True, templateObject = Tick())
 
         self.holding.setModel(self.hModel)
         self.queue.setModel(self.qModel)
@@ -135,30 +140,46 @@ class MainWindow(base, form):
         #Sets the budget initial value
         self.budgetHandler(self.budgetBox.value())
 
+        #Initialization time of KStock
+        self.startTime = datetime.datetime.now(self.tz).time()
+
+        if not TESTING:
+            #Sets the maximum purchase limit to the amount of buying power
+            self.purPrice.setMaximum(float(self.buyingPower.text()))
+
+        #Sets the market bar data labels
+        self.marketBar(fetchMarkets())
+
         #Gathers all current Robinhood holdings, this is mostly for if the program crashes
         #mid-day so it can pick back up where it left off
-        if self.trader.positions()['results']:
+        positions = self.trader.positions()['results']
+        if positions:
             logging.info('Previous Items in Robinhood Found, Adding Them')
-            for pos in self.trader.positions()['results']:
+            for pos in positions:
                 inst = self.trader.instrument(pos['instrument'].split('/')[-2])
                 if float(pos['quantity']) > 0:
                     if inst['symbol'] not in [tick.T for tick in self.hTicks]:
-                        ticker = Tick(inst['symbol'], self.purPrice.value(), self.trader)
+                        ticker = Tick(inst['symbol'], self.purPrice.value(), self.trader, self.spy)
+                        ticker.tradeable = False
                         rhood = (
                             int(float(pos['quantity'])), 
                             round(float(pos['average_buy_price']), 2), 
                             round(float(pos['average_buy_price']) - (float(pos['average_buy_price']) * 0.1), 2)
                         )
                         self.hTicks.append(ticker)
-                        ticker.purchase(
-                            self.purPrice, 
-                            self.currStrat, 
-                            True, 
-                            rhood,
-                            self.afterHours()
+                        ticker.toBuy(
+                            purPrice = self.purPrice, 
+                            spy = self.spy,
+                            forced = True, 
+                            rhood = rhood
                         )
-                        self.totalCost.setText('%.2f' % (float(self.totalCost.text()) - float(ticker.Q * ticker.AP)))
-
+                        self.totalCost.setText('%.2f' % (float(self.totalCost.text()) + float(ticker.Q * ticker.AP)))
+        
+        for tick in set(data['Queue']):
+            if tick not in [ticker.T for ticker in self.hTicks]:
+                self.qTicks.append(Tick(tick, self.purPrice.value(), self.trader, self.spy)) 
+        self.qModel.layoutChanged.emit()
+        
 
     def warn(self, warn):
         '''
@@ -222,13 +243,52 @@ class MainWindow(base, form):
         Returns:
             (bool): True if market closed, else False
         '''
-        
         now = datetime.datetime.now(self.tz)
         openTime = datetime.time(hour = 9, minute = 30, second = 0, tzinfo = self.tz)
         closeTime = datetime.time(hour = 16, minute = 0, second = 0, tzinfo = self.tz)
-        return True if (now.strftime('%Y-%m-%d') in self._us_holidays or \
-            ((now.time() < openTime) or (now.time() > closeTime))) else False
+        #If a holiday
+        if now.strftime('%Y-%m-%d') in self._us_holidays:
+            return True
+        #If before 0930 or after 1600
+        if (now.time() < openTime) or (now.time() > closeTime):
+            return True
+        #If it's a weekend
+        if now.date().weekday() > 4:
+            return True
 
+        return False
+
+
+    def marketBar(self, data):
+        '''
+        Sets the market bar labels accordingly and colors them
+
+        Args:
+            data (dict): Dow, Nasdaq and S&P market data
+
+        Returns:
+            None
+        '''
+        labels = {
+            'Dow' : (self.dowQuote, self.dowChange),
+            'Nasdaq' : (self.nasdaqQuote, self.nasdaqChange),
+            'S&P' : (self.spQuote, self.spChange)
+        }
+
+        for item in labels:
+            for i in range(len(labels[item])):
+                dType = 'Quote' if i == 0 else 'Change'
+                labels[item][i].setText(data[item][dType])
+                if data[item]['D']:
+                    if data[item]['D'] == 'R':
+                        style = 'background-color: rgb(166, 0, 0);'
+                    else:
+                        style = 'background-color: rgb(0, 170, 0);'
+                    labels[item][i].setStyleSheet(style)
+
+        if data['S&P']['D']:
+            self.spy = data['S&P']['D']
+        
 
     def budgetHandler(self, value):
         '''
@@ -246,7 +306,7 @@ class MainWindow(base, form):
         else:    
             if not TESTING:
                 #If real-trading, maximum budget is set to what you have available
-                self.budgetBox.setMaximum(float(self.marginLabel.text()) - 250000)
+                self.budgetBox.setMaximum(float(self.equity.text()) - 250000)
 
             self.budget = value
             logging.info('--- Budget Changed to: {} ----'.format(self.budget))
@@ -269,9 +329,11 @@ class MainWindow(base, form):
         if not self.startBut.isEnabled():
             logging.info('---- Started Trading ----')
             self.budgetBox.setEnabled(False)
+            self.dumpBut.setEnabled(True)
         else:
             logging.info('---- Paused Trading ----')
             self.budgetBox.setEnabled(True)
+            self.dumpBut.setEnabled(False)
 
 
     def queueContext(self, pos):
@@ -308,19 +370,68 @@ class MainWindow(base, form):
 
                 if reply == QMessageBox.Yes:
                     try:
-                        rowTick.purchase(purPrice = self.purPrice.value(), tradeStrat = self.currStrat, forced = True)
-                        self.totalCost.setText('%.2f' % (float(self.totalCost.text()) - float(rowTick.Q * rowTick.AP)))
+                        rowTick.toBuy(
+                            purPrice = self.purPrice.value(), 
+                            spy = self.spy,
+                            forced = True)
+                        self.totalCost.setText('%.2f' % (float(self.totalCost.text()) + float(rowTick.Q * rowTick.AP)))
                         self.transTable.bought(rowTick)
                         self.hTicks.append(rowTick)
                         self.qTicks.remove(rowTick)
 
                         self.hModel.layoutChanged.emit()
                         self.queue.viewport().update()
-                    except TypeError:
+                    except TypeError as e:
+                        logging.info('General Error: {}'.format(e))
                         self.warn('General')
 
 
-    def purchase(self, ticker):
+    def dump(self, clicked = False):
+        '''
+        Sells the remaining stocks if there are any current purchases
+
+        Args:
+            clicked (bool): whether the 'Dump All' button was pressed
+
+        Returns:
+            None
+        '''
+        if self.hModel.rowCount() > 0:
+            if clicked:
+                msg = 'Are you sure you want to dump all currently held stocks?'
+                dumpDia = QMessageBox.question(self, 'Are You Sure', msg, QMessageBox.Yes, QMessageBox.No)
+                if dumpDia == QMessageBox.No: return
+
+            logging.info('---- Selling all positions ----')
+            ticksToSell = [tick for tick in self.hTicks if tick.tradeable]
+
+            while len(ticksToSell) > 0:
+                ticker = ticksToSell.pop(0)
+                self.sell(ticker)
+                time.sleep(0.25)
+
+        if not clicked:
+            self.tradeActs()
+
+
+    def revert(self, ticker, fromList, toList):
+        '''
+        Undos the transaction if there was an error
+
+        Args:
+            None
+
+        Returns:
+            None
+        '''
+        ticker.revert()
+        if ticker.T in [tick.T for tick in fromList]:
+            fromList.remove(ticker)
+        if ticker.T not in [tick.T for tick in toList]:
+            toList.append(ticker)
+
+
+    def purchase(self, ticker, fromMidPrice = None):
         '''
         Purchases the stock by removing it from the Queue, placing it on the Holding table and 
         making the Robninhood call
@@ -331,41 +442,36 @@ class MainWindow(base, form):
         Returns:
             None
         '''
-        if (-1 * float(self.totalCost.text())) + (ticker.C * ticker.PQ) < self.budget:
-            if ticker.purchase(
-                purPrice = self.purPrice.value(), 
-                tradeStrat = self.currStrat, 
-                ah = self.afterHours()
-            ):
-                if not TESTING:
-                    #If not testing sends the order the order to RH
-                    #self.trader.place_limit_buy_order(symbol = ticker.T, time_in_force = 'GFD', price = ticker.C, quantity = ticker.PQ)
-                    logging.info('********** BOUGHT {} OF {} AT {} **********'.format(ticker.PQ, ticker.T, ticker.C))
-                try:
-                    #Takes the ticker, puts it in Holdings, remove it from Queue and adds the transaction to Transaction
-                    self.transTable.bought(ticker)
-                    self.hTicks.append(ticker)
+        if fromMidPrice:
+            tPrice = fromMidPrice
+        else:
+            tPrice = ticker.AP
 
-                    if ticker in self.qTicks:
-                        self.qTicks.remove(ticker)
+        try:
+            #Takes the ticker, puts it in Holdings, remove it from Queue and adds the transaction to Transaction
+            self.transTable.bought(ticker)
+            self.hTicks.append(ticker)
 
-                    self.totalCost.setText('%.2f' % (float(self.totalCost.text()) - float(ticker.Q * ticker.AP)))
+            if not fromMidPrice:
+                self.qTicks.remove(ticker)
+                self.qModel.layoutChanged.emit()
+            
+            self._dtCost += float(ticker.Q * tPrice)    
+            self.totalCost.setText('%.2f' % (float(self.totalCost.text()) + float(ticker.Q * tPrice)))
 
-                    return True
+            logging.info('---- Bought {} shares of {} at {}, SL: {} ----'.format(ticker.Q, ticker.T, tPrice, ticker.SL))
 
-                except ValueError:
-                    #Reverts back the purchase
-                    logging.info('~~~~ Error With Purchase, Reverting Back ~~~~')
-                    ticker.revert()
-                    if ticker.T in [tick.T for tick in self.hTicks]:
-                        self.hTicks.remove(ticker)
-                    if ticker.T not in [tick.T for tick in self.qTicks]:
-                        self.qTicks.append(ticker)
+            return True
+
+        except ValueError:
+            #Reverts back the purchase
+            logging.error('~~~~ Error With Purchase, Reverting Back ~~~~')
+            self.revert(ticker, self.hTicks, self.qTicks)
 
         return False
 
 
-    def sell(self, ticker):
+    def sell(self, ticker, fromMidPrice = None):
         '''
         Sells the stock by removing it from the Holding, placing it on the Queue, if re-buy and 
         making the Robninhood call
@@ -376,23 +482,20 @@ class MainWindow(base, form):
         Returns:
             None
         '''
-        if not TESTING:
-            #makes RH call
-            #self.trader.place_limit_sell_order(symbol = ticker.T, time_in_force = 'GFD', price = ticker.C, quantity = ticker.Q)
-            logging.info('********** SOLD {} OF {} AT {} **********'.format(ticker.Q, ticker.T, ticker.C))
+        if fromMidPrice:
+            tPrice = fromMidPrice
+        else:
+            tPrice = ticker.C
 
-        logging.info(
-            '---- Sold {} shares of {} at {} ----'.format(
-                ticker.Q, ticker.T, ticker.C
-        ))
+        logging.info('---- Sold {} shares of {} at {} ----'.format(ticker.Q, ticker.T, tPrice))
 
         #Updates profit and costs
-        indprofit = float(ticker.Q * ticker.C) - float(ticker.Q * ticker.AP)      
+        indprofit = float(ticker.Q * tPrice) - float(ticker.Q * ticker.AP)      
         profitLabel = float(self.profitLabel.text()) + indprofit
            
         logging.info('---- {} Profit: {} ----'.format(ticker.T, round(indprofit, 2)))
         self.profitLabel.setText('%.2f' % (profitLabel))
-        self.totalCost.setText('%.2f' % (float(self.totalCost.text()) + (ticker.Q * ticker.C)))
+        self.totalCost.setText('%.2f' % (float(self.totalCost.text()) - (ticker.Q * tPrice)))
 
         #If rebuying puts the old tick back on the Queue
         if self.rebuy.isChecked():
@@ -402,15 +505,26 @@ class MainWindow(base, form):
         ticker.close()
 
         self.transTable.sold(ticker)
-        self.hTicks.remove(ticker)
-        self.hModel.layoutChanged.emit()
+
+        if not fromMidPrice:
+            self.hTicks.remove(ticker)
+            self.hModel.layoutChanged.emit()
         
         return True
 
 
+    
     def update(self):
-        #The main update function, gets called every 5 seconds
-        #Contains the child call functions
+        '''
+        The main function that gets called every X contains all the child
+        table updating functions
+
+        Args:
+            None
+
+        Returns:
+            None
+        '''
 
         def _success(worker):
             #Called when one of the workers is successfully completed
@@ -422,31 +536,56 @@ class MainWindow(base, form):
             logging.error('~~~~ Error with the {} ~~~~'.format(worker))
 
 
-        def _holdCall():
+        def _midCheck():
             '''
-            Performs all the necessaries for the Holdings table, is put in a worker
-            and executes in the background
+            Monitors the middle man list for unfilled orders
 
             Args:
                 None
 
             Returns:
                 None
-            '''                
-            if not self.startBut.isEnabled():
-                for tick in self.hTicks:
-                    if tick.tradeable:
-                        logging.info('Hold {}'.format(tick.T))
-                        if tick.toSell(
-                            purPrice = self.purPrice.value(), 
-                            tradeStrat = self.currStrat, 
-                            ah = self.afterHours()
-                        ):
-                            self.sell(tick)
+            '''
+            headers = {'Accept': 'application/json', 'Authorization' : self.trader.headers['Authorization']}
 
+            for tick in self.midTicks:
+                if tick.transID:
+                    url = 'https://api.robinhood.com/orders' + '/' + tick.transID[1]
+                    res = requests.get(url, headers = headers).json()
+                    if tick.transID[0] == 'sell':
+                        if res['state'] == 'state':
+                            self.sell(tick, fromMidPrice = float(res['price']))
+                    else:
+                        if res['state'] == 'filled':
+                            self.purchase(tick, fromMidPrice = float(res['price']))
+
+
+        def _tickUpdate(curList):
+            '''
+            Updates the tick objects in the respective list
+
+            Args:
+                curList (str): string name of list that is being updated
+
+            Returns:
+                None
+            '''
+            listDict = {'Hold' : self.hTicks, 'Queue' : self.qTicks}
+            tickData = robinTicks(self.trader, [tick.T for tick in listDict[curList]], self.afterHours())
+            if len(tickData) != len(listDict[curList]):
+                logging.error('~~~~ {} and Fetch Lengths Do Not Match ~~~~'.format(curList))
+                return
             else:
-                for tick in self.hTicks:
-                    tick.update(self.purPrice.value(), self.afterHours())
+                for tickDict in tickData:
+                    try:
+                        idx = [tick.T for tick in listDict[curList]].index(tickDict['Sym'])
+                    except ValueError:
+                        return
+                    listDict[curList][idx].update(
+                        data = tickDict['Data'], 
+                        purPrice = self.purPrice.value(), 
+                        spy = self.spy 
+                    )
 
 
         def _queueCall():
@@ -460,51 +599,123 @@ class MainWindow(base, form):
             Returns:
                 None
             '''
+            if len(self.qTicks) > 0:
+                _tickUpdate('Queue')
+
             #If actually trading, iterate through Queue and if the projected cost doesn't exceed budget see if
             #it meets purchasing criteria, else just update
             if not self.startBut.isEnabled():
                 for tick in self.qTicks:
                     logging.info('Queue {}'.format(tick.T))
-                    if type(tick.C) == float:
-                        if self.purchase(tick):
-                            logging.info(
-                                '---- Bought {} shares of {} at {}, SL: {} ----'.format(
-                                    tick.Q, tick.T, tick.AP, tick.SL
-                            ))
-            else:
-                for tick in self.qTicks:
-                    tick.update(self.purPrice.value(), self.afterHours())
+                    transPrice = tick.C * tick.PQ
+                    try:
+                        if self._dtCost + transPrice < self.budget and transPrice < float(self.buyingPower.text()): 
+                            if tick.toBuy(
+                                purPrice = self.purPrice.value(), 
+                                spy = self.spy
+                            ):
+                                if not TESTING:
+                                    if float(self.buyingPower.text()) > transPrice:
+                                        resp = self.trader.place_limit_buy_order(
+                                            symbol = tick.T, 
+                                            time_in_force = 'GFD', 
+                                            price = tick.C, 
+                                            quantity = tick.PQ
+                                        ).json()
+
+                                        if resp['state'] in ['unconfirmed', 'queued']:
+                                            logging.info('---- {} Added to MiddleMan, Waiting for Buy Confirmation ----'.format(tick.T))
+                                            tick.transID = (resp['side'], resp['id'])
+                                            self.midTicks.append(tick)
+                                            self.qTicks.remove(tick)
+                                            self.qModel.layoutChanged.emit()
+                                        elif resp['state'] in ['partially_filled', 'filled']:
+                                            self.purchase(tick)
+                                        else:
+                                            logging.error('~~~~ Something Went Wrong With {}s Purchase ~~~~'.format(tick.T))
+                                            logging.error('~~~~ Robinhood Response for {}: {}'.format(tick.T, resp['state']))
+                                            self.revert(tick, self.qTicks, self.hTicks)
+                                else:
+                                    self.purchase(tick)
+                    except TypeError:
+                        pass                                   
 
 
-        #Determines the trading strategy, based on the time of day
-        now = datetime.datetime.now(self.tz).time()
-        opening = datetime.time(hour = 9, minute = 30, second = 0, tzinfo = self.tz)
-        ten_fifteen = datetime.time(hour = 10, minute = 15, second = 0, tzinfo = self.tz)
-        if opening < now < ten_fifteen:
-            #Price Swing Strategy
-            self.currStrat = 'PS'
-        else:
-            #Short Trading
-            self.currStrat = 'ST'
+        def _holdCall():
+            '''
+            Performs all the necessaries for the Holdings table, is put in a worker
+            and executes in the background
+
+            Args:
+                None
+
+            Returns:
+                None
+            '''
+            if len(self.hTicks):
+                _tickUpdate('Hold')
+
+            if not self.startBut.isEnabled():
+                for tick in self.hTicks:
+                    if tick.tradeable:
+                        logging.info('Hold {}'.format(tick.T))
+                        if tick.toSell(
+                            purPrice = self.purPrice.value(), 
+                            spy = self.spy 
+                        ):
+                            if not TESTING:
+                                resp = self.trader.place_limit_buy_order(
+                                    symbol = tick.T, 
+                                    time_in_force = 'GFD', 
+                                    price = tick.C, 
+                                    quantity = tick.PQ
+                                ).json()
+
+                                if resp['state'] in ['unconfirmed', 'queued']:
+                                    logging.info('---- {} Added to MiddleMan, Waiting for Buy Confirmation ----'.format(tick.T))
+                                    tick.transID = (resp['side'], resp['id'])
+                                    self.midTicks.append(tick)
+                                    self.hTicks.remove(tick)
+                                    self.hModel.layoutChanged.emit()
+                                elif resp['state'] in ['partially_filled', 'filled', 'confirmed']:
+                                    self.sell(tick)
+                                else:
+                                    logging.error('~~~~ Something Went Wrong With {}s Sale ~~~~'.format(tick.T))
+                                    logging.error('~~~~ Robinhood Response for {}: {}'.format(tick.T, resp['state']))
+                                    self.revert(tick, self.qTicks, self.hTicks)
+                            else:
+                                self.sell(tick)
+
 
         #Robinhood portfolio, creates an empty one if an error is thrown
         #such as having 0 in the portfolio
         try:
             self.portfolio = self.trader.portfolios()
+            self.account = self.trader.get_account()['margin_balances']
         except IndexError:
             logging.info('~~~~ Portfolio Empty ~~~~')
             self.portfolio = {
                 'equity' : 0,
                 'extended_hours_equity' : 0,
-                'withdrawable_amount' : 0
             }
+            self.account = {
+                'unsettled_debit' : 0,
+                'start_of_day_dtbp' : 0,
+                'cash': 0
+            }
+
         except (requests.exceptions.ConnectionError, requests.exceptions.HTTPError, TimeoutError) as e:
             logging.info('~~~~ Connection Error: {} ~~~~'.format(e))
             return
 
+        #Updates the market tracker bar
+        self.marketBar(fetchMarkets())
+
+        now = datetime.datetime.now(self.tz).time()
+        
         #Set the Equity to current value depending on if it's aH or not
         if self.afterHours():
-            self.holdLabel.setText('%.2f' % (float(self.portfolio['extended_hours_equity'])))
+            self.equity.setText('%.2f' % (float(self.portfolio['extended_hours_equity'])))
 
             #Disable Trading aH
             if not TESTING:
@@ -512,7 +723,7 @@ class MainWindow(base, form):
                     self.tradeActs()
 
         else:
-            self.holdLabel.setText('%.2f' % (float(self.portfolio['equity'])))
+            self.equity.setText('%.2f' % (float(self.portfolio['equity'])))
 
             if self.portfolio['equity']:
                 #Plt that stuff if it's during the trading day
@@ -526,43 +737,56 @@ class MainWindow(base, form):
                 
                 self.graph.plot(list(xdict.keys()), self.graphData[1], pen = self.ePen, clear = False)
 
-        self.marginLabel.setText('%.2f' % (float(self.portfolio['withdrawable_amount'])))
+        self.buyingPower.setText('%.2f' % (float(self.account['start_of_day_dtbp'])))
+        self.cash.setText('%.2f' % (float(self.account['cash'])))
+        self.uDebit.setText('%.2f' % (float(self.account['unsettled_debit'])))
         
         if not TESTING:
             if not self.startBut.isEnabled():
                 #If end of day approaching, close out all positions regardless of profit
                 if now > datetime.time(hour = 15, minute = 58, second = 0, tzinfo = self.tz):
-                    if self.hModel.rowCount() > 0:
-                        logging.info('---- Markets are about to close, selling all positions ----')
-                        for ticker in self.hTicks:
-                            if ticker.tradeable:
-                                self.sell(ticker)
+                    self.dump()
 
                 #Safety-net for SEC guideline of >25000 on Non-Margin for day trading
-                if self.marginSpin.value() < float(self.marginLabel.text()) < self.marginSpin.value() + 100:
+                if self.marginSpin.value() < float(self.equity.text()) < self.marginSpin.value() + 100:
                     self.warn('Near Thresh')
-                if float(self.marginLabel.text()) < self.marginSpin.value():
-                    logging.info('~~~~ Non-Margin Fell Below Threshold ~~~~')
+                if float(self.equity.text()) < self.marginSpin.value():
+                    logging.info('~~~~ Equity Fell Below Threshold ~~~~')
                     self.warn('Below Thresh')
                     self.tradeActs()
-            
 
-        holdWorker = Worker(_holdCall)
-        holdWorker.signals.finished.connect(lambda : _success('Hold'))
-        holdWorker.signals.error.connect(lambda : _error('Hold'))
+        else:
+            #Allow for dumping of stocks at end of the day if just testing
+            if not self.startBut.isEnabled():
+                if self.startTime < datetime.time(hour = 16, minute = 0, second = 0, tzinfo = self.tz):
+                    if now > datetime.time(hour = 15, minute = 58, second = 0, tzinfo = self.tz):
+                        self.dump()
 
-        self.pool.start(holdWorker)
-        self.hModel.layoutChanged.emit()
-        self.holding.viewport().update()
+        if len(self.hTicks) > 0:
+            holdWorker = Worker(_holdCall)
+            holdWorker.signals.finished.connect(lambda : _success('Hold'))
+            holdWorker.signals.error.connect(lambda : _error('Hold'))
+
+            self.pool.start(holdWorker)
+            self.hModel.layoutChanged.emit()
+            self.holding.viewport().update()
 
         #Only calls the update function if there's stuff in the table, saves memory
-        if self.qModel.rowCount() > 0:
+        if len(self.qTicks) > 0:
             queueWorker = Worker(_queueCall)
             queueWorker.signals.finished.connect(lambda : _success('Queue'))
             queueWorker.signals.error.connect(lambda : _error('Queue'))
 
             self.pool.start(queueWorker)
+            self.qModel.layoutChanged.emit()
             self.queue.viewport().update()
+            
+        if len(self.midTicks) > 0:
+            midWorker = Worker(_midCheck)
+            midWorker.signals.finished.connect(lambda : _success('Middle'))
+            midWorker.signals.error.connect(lambda : _error('Middle'))
+
+            self.pool.start(midWorker)
 
 
     def addQueue(self, ticks = False):
@@ -587,9 +811,22 @@ class MainWindow(base, form):
                 None
             '''
             if ticker not in [tick.T for tick in self.qTicks + self.hTicks]:
-                self.qTicks.append(Tick(ticker, self.purPrice.value(), self.trader))
+                inst = self.trader.instruments(ticker)[0]
+
+                #Whether it's actually tradeable on RH
+                if not inst['tradeable']: return
+
+                #Whether it's a high volatilty stock (RH has some rules against this)
+                sig = float(inst['maintenance_ratio'])
+                if  sig > 0.5:
+                    msg = '{} is a High Volatility stock (σ = {}), are you sure you want to add it?'.format(ticker, sig)
+                    addWarn = QMessageBox.question(self, 'High Volatility Stock', msg, QMessageBox.Yes, QMessageBox.No)
+                    if addWarn == QMessageBox.No: return
+
+                self.qTicks.append(Tick(ticker, self.purPrice.value(), self.trader, self.spy))
                 self.qModel.layoutChanged.emit()
                 logging.info('Added ' + ticker + ' to Queue')
+
 
 
         if not ticks:
@@ -597,7 +834,7 @@ class MainWindow(base, form):
             if tick.exec_():
                 if tick.result() and tick.tickEdit.text():
                     if not TESTING:
-                        if float(self.marginLabel.text()) > 25000:
+                        if float(self.equity.text()) > 25000:
                             _add(tick.tickEdit.text())
 
                             #Autosaves...duh
