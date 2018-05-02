@@ -44,18 +44,30 @@ def robinTick(trader, tick, ah = False):
         c = round(ltp - c, 2)
         cp = round((c / ltp) * 100, 2) 
 
-        tickMetrics.update({
+        try:
+            if ltp > 1:
+                yh = round(float(tickFund['high_52_weeks'], 2))
+                yl = round(float(tickFund['low_52_weeks'], 2))
+            else:
+                yh = float(tickFund['high_52_weeks'])
+                yl = float(tickFund['low_52_weeks'])
+        except TypeError:
+            yh = ''
+            yl = '' 
+
+        tickList[-1]['Data'].update({
             'LTP' : ltp,
             'LAP' : lap,
             'C' : c,
             'CP' : cp,
             'TH' : round(float(tickFund['high']), 2),
             'TL' : round(float(tickFund['low']), 2),
-            'YH' : round(float(tickFund['high_52_weeks']), 2),
-            'YL' : round(float(tickFund['low_52_weeks']), 2),
+            'YH' : yh,
+            'YL' : yl,
             'V' : int(float(tickFund['volume'])),
             'D' : 'G' if c > 0 else 'R'
         })
+
 
     except TypeError:
         logging.info('~~~~ {} Does Not Seem to Have Data, Dropping ~~~~'.format(tick))
@@ -107,6 +119,16 @@ def robinTicks(trader, ticks, ah = False):
 
             c = round(ltp - c, 2)
             cp = round((c / ltp) * 100, 2) 
+            try:
+                if ltp > 1:
+                    yh = round(float(tickFund['high_52_weeks'], 2))
+                    yl = round(float(tickFund['low_52_weeks'], 2))
+                else:
+                    yh = float(tickFund['high_52_weeks'])
+                    yl = float(tickFund['low_52_weeks'])
+            except TypeError:
+                yh = ''
+                yl = '' 
 
             tickList[-1]['Data'].update({
                 'LTP' : ltp,
@@ -115,8 +137,8 @@ def robinTicks(trader, ticks, ah = False):
                 'CP' : cp,
                 'TH' : round(float(tickFund['high']), 2),
                 'TL' : round(float(tickFund['low']), 2),
-                'YH' : round(float(tickFund['high_52_weeks']), 2),
-                'YL' : round(float(tickFund['low_52_weeks']), 2),
+                'YH' : yh,
+                'YL' : yl,
                 'V' : int(float(tickFund['volume'])),
                 'D' : 'G' if c > 0 else 'R'
             })
