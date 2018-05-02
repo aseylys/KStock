@@ -11,24 +11,25 @@ For those of you wondering, no. This does not have any cryptocurrency or options
 
 ![Live Tab](https://github.com/aseylys/KStock/blob/master/imgs/Front.png) ![Background Tab](https://github.com/aseylys/KStock/blob/master/imgs/Back.png)
 
+
 ### Features
 
 KStock features two Tabs: **Live**, **Backend**. 
 ## Live tab
 
  The *"command power-house of the app"*. It features all the necessary information for monitoring KStock. The Current Holdings table contains all the ticker object that the user currently owns. This is continuously updated every three seconds. The top market bar shows the status of Dow, the S&P 500, and the NASDAQ.  On the bottom is a graph showing the trend of the user's equity throughout the time KStock has been on. On the right houses the settings and value of the user's account. 
-    * **Buying Power**: The user's day trading buying power. This is reset everyday and is dependent on what type of account the user has and what stocks they are currently trading. This is pretty much the limiting factor on how many trades a user can do in a day.
-    * **Cash**: The actual money the user is using to purchase the stocks. With an instant account this should be up to date with all instant settlements.
-    * **Equity Min**: A user defined value (default: 25000); the minimum the user wants their total equity to drop to before stopping trading.
-    * **Limit/Purchase**: A user defined value (default: 1000); how much KStock spends on each purchase
-    * **Day Budget**: A user defined value (default: 0.00); how much the user wants to spend today (reflected under **Total Cost**), if set to 0.00 there is no budget and KStock will continue to purchase stock until **Cash** runs out. Disabled when trading has begun, **Pause** to edit this value.
-    * **Re-Buy**: A user defined value (default: Checked); if checked and if a stock is sold, it will be put back on the **Queue** to try and be purchased again
-    * **Equity**: Total net worth of the user
-    * **Unsettled Debit**: How much funds are unsettled. This could get pretty high depending on how much trading is accomplished in a day. Basically how much funds are unsettled in your account - these take about three days to settle.
-    * **Trading Control**: Starting and stopping trading is controlled with these two buttons. Trading is automatically stopped after 1558 EST after selling off all tradeable stocks. 
-    * **Total Cost**: How much has been spent in total. If 0 securities were held throughout the night, the total cost will be the total spent today. Takes into account sales and profits.
-    * **Today's Profit**: How much has been made today.
-    * **Dump All**: If clicked, and if confirmed, sells off all tradeable stocks.
+ - * **Buying Power**: The user's day trading buying power. This is reset everyday and is dependent on what type of account the user has and what stocks they are currently trading. This is pretty much the limiting factor on how many trades a user can do in a day.
+ - * **Cash**: The actual money the user is using to purchase the stocks. With an instant account this should be up to date with all instant settlements.
+ - * **Equity Min**: A user defined value (default: 25000); the minimum the user wants their total equity to drop to before stopping trading.
+ - * **Limit/Purchase**: A user defined value (default: 1000); how much KStock spends on each purchase
+ - * **Day Budget**: A user defined value (default: 0.00); how much the user wants to spend today (reflected under **Total Cost**), if set to 0.00 there is no budget and KStock will continue to purchase stock until **Cash** runs out. Disabled when trading has begun, **Pause** to edit this value.
+ - * **Re-Buy**: A user defined value (default: Checked); if checked and if a stock is sold, it will be put back on the **Queue** to try and be purchased again
+ - * **Equity**: Total net worth of the user
+ - * **Unsettled Debit**: How much funds are unsettled. This could get pretty high depending on how much trading is accomplished in a day. Basically how much funds are unsettled in your account - these take about three days to settle.
+ - * **Trading Control**: Starting and stopping trading is controlled with these two buttons. Trading is automatically stopped after 1558 EST after selling off all tradeable stocks. 
+ - * **Total Cost**: How much has been spent in total. If 0 securities were held throughout the night, the total cost will be the total spent today. Takes into account sales and profits.
+ - * **Today's Profit**: How much has been made today.
+ - * **Dump All**: If clicked, and if confirmed, sells off all tradeable stocks.
 
 ## Backend Tab
 
