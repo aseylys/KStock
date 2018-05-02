@@ -9,7 +9,7 @@ KStock is a Robinhood Day-Trading Bot written in Python >3.5. It uses the unoffi
 
 For those of you wondering, no. This does not have any cryptocurrency or options integration. Robinhood hasn't released crypto and options trading completely to everyone yet, so until that happens this is strictly just for securities.
 
-![Live Tab](https://i.imgur.com/hlqzxp6.png) ![Background Tab](https://i.imgur.com/49ipYtt.png)
+![Live Tab](https://github.com/aseylys/KStock/blob/master/imgs/Front.png) ![Background Tab](https://github.com/aseylys/KStock/blob/master/imgs/Back.png)
 
 ### Features
 
