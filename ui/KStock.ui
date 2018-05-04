@@ -398,15 +398,15 @@
            <item row="7" column="0">
             <widget class="QLabel" name="label_17">
              <property name="statusTip">
-              <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;How much you have borrowed from Robinhood&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+              <string>How much cash still needs to be settled (~3 days)</string>
              </property>
              <property name="text">
-              <string>Unsettled Debit:</string>
+              <string>Unsettled Funds:</string>
              </property>
             </widget>
            </item>
            <item row="7" column="1">
-            <widget class="QLabel" name="uDebit">
+            <widget class="QLabel" name="uFund">
              <property name="whatsThis">
               <string/>
              </property>

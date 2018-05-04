@@ -25,7 +25,7 @@ from Tick import Tick
 from Worker import *
 import pandas as pd
 
-TESTING = True
+TESTING = False
 
 form, base = uic.loadUiType('ui/KStock.ui')
 
@@ -142,10 +142,6 @@ class MainWindow(base, form):
 
         #Initialization time of KStock
         self.startTime = datetime.datetime.now(self.tz).time()
-
-        if not TESTING:
-            #Sets the maximum purchase limit to the amount of buying power
-            self.purPrice.setMaximum(float(self.buyingPower.text()))
 
         #Sets the market bar data labels
         self.marketBar(fetchMarkets())
@@ -306,7 +302,7 @@ class MainWindow(base, form):
         else:    
             if not TESTING:
                 #If real-trading, maximum budget is set to what you have available
-                self.budgetBox.setMaximum(float(self.equity.text()) - 250000)
+                self.budgetBox.setMaximum(float(self.cash.text()))
 
             self.budget = value
             logging.info('--- Budget Changed to: {} ----'.format(self.budget))
@@ -373,8 +369,10 @@ class MainWindow(base, form):
                         rowTick.toBuy(
                             purPrice = self.purPrice.value(), 
                             spy = self.spy,
-                            forced = True)
+                            forced = True
+                        )
                         self.totalCost.setText('%.2f' % (float(self.totalCost.text()) + float(rowTick.Q * rowTick.AP)))
+                        self._dtCost += float(rowTick.Q * rowTick.AP)
                         self.transTable.bought(rowTick)
                         self.hTicks.append(rowTick)
                         self.qTicks.remove(rowTick)
@@ -442,19 +440,16 @@ class MainWindow(base, form):
         Returns:
             None
         '''
-        if fromMidPrice:
-            tPrice = fromMidPrice
-        else:
-            tPrice = ticker.AP
-
         try:
             #Takes the ticker, puts it in Holdings, remove it from Queue and adds the transaction to Transaction
             self.transTable.bought(ticker)
             self.hTicks.append(ticker)
 
-            if not fromMidPrice:
-                self.qTicks.remove(ticker)
-                self.qModel.layoutChanged.emit()
+            if fromMidPrice:
+                self.midTicks.remove(ticker)
+                tprice = fromMidPrice
+            else:
+                tPrice = ticker.AP
             
             self._dtCost += float(ticker.Q * tPrice)    
             self.totalCost.setText('%.2f' % (float(self.totalCost.text()) + float(ticker.Q * tPrice)))
@@ -484,6 +479,7 @@ class MainWindow(base, form):
         '''
         if fromMidPrice:
             tPrice = fromMidPrice
+            self.midTicks.remove(ticker)
         else:
             tPrice = ticker.C
 
@@ -505,10 +501,6 @@ class MainWindow(base, form):
         ticker.close()
 
         self.transTable.sold(ticker)
-
-        if not fromMidPrice:
-            self.hTicks.remove(ticker)
-            self.hModel.layoutChanged.emit()
         
         return True
 
@@ -553,10 +545,10 @@ class MainWindow(base, form):
                     url = 'https://api.robinhood.com/orders' + '/' + tick.transID[1]
                     res = requests.get(url, headers = headers).json()
                     if tick.transID[0] == 'sell':
-                        if res['state'] == 'state':
+                        if res['state'] in ['partially_filled', 'filled', 'confirmed']:
                             self.sell(tick, fromMidPrice = float(res['price']))
                     else:
-                        if res['state'] == 'filled':
+                        if res['state'] in ['partially_filled', 'filled']:
                             self.purchase(tick, fromMidPrice = float(res['price']))
 
 
@@ -609,7 +601,7 @@ class MainWindow(base, form):
                     logging.info('Queue {}'.format(tick.T))
                     transPrice = tick.C * tick.PQ
                     try:
-                        if self._dtCost + transPrice < self.budget and transPrice < float(self.buyingPower.text()): 
+                        if self._dtCost + transPrice < self.budget and transPrice < float(self.buyingPower.text()) and transPrice < float(self.cash.text()):
                             if tick.toBuy(
                                 purPrice = self.purPrice.value(), 
                                 spy = self.spy
@@ -699,9 +691,9 @@ class MainWindow(base, form):
                 'extended_hours_equity' : 0,
             }
             self.account = {
-                'unsettled_debit' : 0,
+                'unsettled_funds' : 0,
                 'start_of_day_dtbp' : 0,
-                'cash': 0
+                'unallocated_margin_cash': 0
             }
 
         except (requests.exceptions.ConnectionError, requests.exceptions.HTTPError, TimeoutError) as e:
@@ -738,8 +730,8 @@ class MainWindow(base, form):
                 self.graph.plot(list(xdict.keys()), self.graphData[1], pen = self.ePen, clear = False)
 
         self.buyingPower.setText('%.2f' % (float(self.account['start_of_day_dtbp'])))
-        self.cash.setText('%.2f' % (float(self.account['cash'])))
-        self.uDebit.setText('%.2f' % (float(self.account['unsettled_debit'])))
+        self.cash.setText('%.2f' % (float(self.account['unallocated_margin_cash'])))
+        self.uFund.setText('%.2f' % (float(self.account['unsettled_funds'])))
         
         if not TESTING:
             if not self.startBut.isEnabled():
@@ -754,6 +746,8 @@ class MainWindow(base, form):
                     logging.info('~~~~ Equity Fell Below Threshold ~~~~')
                     self.warn('Below Thresh')
                     self.tradeActs()
+            
+            self.purPrice.setMaximum(float(self.cash.text()))
 
         else:
             #Allow for dumping of stocks at end of the day if just testing
