@@ -469,7 +469,7 @@ class MainWindow(base, form):
         '''
         if orderType == 'Buy':
             if not TESTING:
-                if float(self.buyingPower.text()) > transPrice:
+                if float(self.cash.text()) > transPrice:
                     resp = self.trader.place_limit_buy_order(
                         symbol = ticker.T, 
                         time_in_force = 'GFD', 
@@ -481,8 +481,8 @@ class MainWindow(base, form):
                         logging.info('---- {} Added to MiddleMan, Waiting for Buy Confirmation ----'.format(ticker.T))
                         ticker.transID = (resp['side'], resp['id'])
                         self.midTicks.append(ticker)
-                        self.qTicks.remove(ticker)
-                        self.qModel.layoutChanged.emit()
+                        #self.qTicks.remove(ticker)
+                        #self.qModel.layoutChanged.emit()
                     elif resp['state'] in ['partially_filled', 'filled']:
                         self.purchase(ticker)
                     else:
@@ -493,25 +493,25 @@ class MainWindow(base, form):
                 self.purchase(ticker)
         else:
             if not TESTING:
-                resp = self.trader.place_limit_buy_order(
+                resp = self.trader.place_limit_sell_order(
                     symbol = ticker.T, 
                     time_in_force = 'GFD', 
                     price = ticker.C, 
-                    quantity = ticker.PQ
+                    quantity = ticker.Q
                 ).json()
 
                 if resp['state'] in ['unconfirmed', 'queued']:
-                    logging.info('---- {} Added to MiddleMan, Waiting for Buy Confirmation ----'.format(ticker.T))
+                    logging.info('---- {} Added to MiddleMan, Waiting for Sale Confirmation ----'.format(ticker.T))
                     ticker.transID = (resp['side'], resp['id'])
                     self.midTicks.append(ticker)
-                    self.hTicks.remove(ticker)
-                    self.hModel.layoutChanged.emit()
+                    #self.hTicks.remove(ticker)
+                    #self.hModel.layoutChanged.emit()
                 elif resp['state'] in ['partially_filled', 'filled', 'confirmed']:
                     self.sell(ticker)
                 else:
                     logging.error('~~~~ Something Went Wrong With {}s Sale ~~~~'.format(ticker.T))
                     logging.error('~~~~ Robinhood Response for {}: {}'.format(ticker.T, resp['state']))
-                    self.revert(ticker, self.qTicks, self.hTicks)
+                    self.revert(ticker, self.hTicks, self.qTicks)
             else:
                 self.sell(ticker)
 
