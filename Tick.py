@@ -155,7 +155,7 @@ class Tick():
         self.Q, self.AP, self.SL, self.transID = None, None, None, None        
 
 
-    def toSell(self, purPrice, spy, forced = False):
+    def toSell(self, purPrice, spy):
         '''
         Determines whether to sell the ticker based on the current strategy
 
@@ -173,8 +173,8 @@ class Tick():
         #Continues for 2 unique updates
         if self.Q:
             #If it falls below the limit loss, force sell it
-            if (self.C <= self.SL) or forced:
-                logging.info('{} Forced Sell At {}'.format(self.T, self.C))
+            if self.C <= self.SL:
+                logging.info('{} Hit Stop Loss at {}'.format(self.T, self.C))
                 return True
 
             #Conservative with Red days and non-penny stocks

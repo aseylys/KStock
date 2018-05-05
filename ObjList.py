@@ -450,4 +450,19 @@ class Transactions(QTableWidget):
                             self.item(_row, j).setBackground(color('R'))
                         else:
                             self.item(_row, j).setBackground(color('NA'))
+        else:
+            _row = self.rowCount()
+            self.insertRow(_row)
+            data = [tick.T, tick.Q, tick.AP, tick.C]
+            for item in range(len(data)):
+                tItem = QTableWidgetItem(str(data[item]))
+                tItem.setTextAlignment(Qt.AlignCenter)
+                self.setItem(_row, item, tItem)
 
+            for j in range(self.columnCount()):
+                if tick.C > tick.AP:
+                    self.item(_row, j).setBackground(color('G'))
+                elif tick.AP < tick.C:
+                    self.item(_row, j).setBackground(color('R'))
+                else:
+                    self.item(_row, j).setBackground(color('NA'))

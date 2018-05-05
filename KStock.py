@@ -3,7 +3,7 @@ logFormat = logging.Formatter('%(name)s _ %(levelname)s _ %(message)s')
 rootLog = logging.getLogger()
 rootLog.setLevel(logging.INFO)
 
-fileHandler = logging.FileHandler('TradeLogs.log')
+fileHandler = logging.FileHandler('TradeLogs.log', mode = 'w')
 fileHandler.setFormatter(logFormat)
 rootLog.addHandler(fileHandler)
 
@@ -25,7 +25,7 @@ from Tick import Tick
 from Worker import *
 import pandas as pd
 
-TESTING = False
+TESTING = True
 
 form, base = uic.loadUiType('ui/KStock.ui')
 
@@ -34,15 +34,20 @@ class MainWindow(base, form):
         super(base, self).__init__()
         self.setupUi(self)
 
+        #Lists that house whats on the Queue, Holdings and Middle-Man
         self.qTicks, self.hTicks, self.midTicks = [], [], []
+        #Graph Data
         self.graphData = [[],[]]
+        #Models for Queue and Holdings
         self.qModel, self.hModel = None, None
+        #Spy indicator, G or R
         self.spy = 'G'
-
         #Day trading cost which doesn't factor in sales
         self._dtCost = 0
+        #Initial warning for nearing your threshold
+        self.notYetWarned = True
 
-        #Sets the eastern timezone
+        #Sets the eastern timezone and loads holidays
         self.tz = pytz.timezone('US/Eastern')
         self._us_holidays = holidays.US()
 
@@ -61,9 +66,12 @@ class MainWindow(base, form):
         self.budgetBox.valueChanged.connect(self.budgetHandler)
         self.dumpBut.clicked.connect(lambda : self.dump(True))
 
-        #Create Context Menu if right clicked
+        #Create Queue context menu if right clicked
         self.queue.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         self.queue.customContextMenuRequested.connect(self.queueContext)
+        #Create Holding context menu if right clicked
+        self.holding.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.holding.customContextMenuRequested.connect(self.holdingContext)
 
         #Graph options
         self.ePen = pg.mkPen(color = 'b', width = 2)
@@ -157,10 +165,16 @@ class MainWindow(base, form):
                     if inst['symbol'] not in [tick.T for tick in self.hTicks]:
                         ticker = Tick(inst['symbol'], self.purPrice.value(), self.trader, self.spy)
                         ticker.tradeable = False
+                        buyPrice = float(pos['average_buy_price'])
+                        if buyPrice > 1:
+                            buyPrice = round(buyPrice, 2)
+                            sl = round(buyPrice - (buyPrice * 0.1), 2)
+                        else:
+                            sl = buyPrice - (buyPrice * 0.1)
                         rhood = (
                             int(float(pos['quantity'])), 
-                            round(float(pos['average_buy_price']), 2), 
-                            round(float(pos['average_buy_price']) - (float(pos['average_buy_price']) * 0.1), 2)
+                            buyPrice, 
+                            sl
                         )
                         self.hTicks.append(ticker)
                         ticker.toBuy(
@@ -229,17 +243,18 @@ class MainWindow(base, form):
                 self.api()
 
 
-    def afterHours(self):
+    def afterHours(self, now = None):
         '''
         Determines whether the market is open (0930-1600, weekdays, non-federal holidays)
 
         Args:
-            None
+            now (datetime): The time it is right now, with reference to EST
 
         Returns:
             (bool): True if market closed, else False
         '''
-        now = datetime.datetime.now(self.tz)
+        if not now:
+            now = datetime.datetime.now(self.tz)
         openTime = datetime.time(hour = 9, minute = 30, second = 0, tzinfo = self.tz)
         closeTime = datetime.time(hour = 16, minute = 0, second = 0, tzinfo = self.tz)
         #If a holiday
@@ -384,6 +399,35 @@ class MainWindow(base, form):
                         self.warn('General')
 
 
+    def holdingContext(self, pos):
+        '''
+        Creates the context menu for the Holding
+
+        Args:
+            pos (QModelIndex): index of the selected row
+
+        Returns:
+            None
+        '''
+        if self.hModel.rowCount() > 0:
+            menu = QMenu()
+            delX = menu.addAction('Sell Tick')
+
+            action = menu.exec_(self.holding.mapToGlobal(pos))
+            rowTick = self.hTicks[self.holding.rowAt(pos.y())]
+
+            if action == delX:
+                if rowTick.tradeable:
+                    reply = QMessageBox.question(
+                            None, 
+                            'Sell?', 
+                            'Sell {} shares of {} for at {}'.format(rowTick.PQ, rowTick.T, rowTick.C),
+                            QMessageBox.Yes, QMessageBox.No
+                        )
+                    if reply == QMessageBox.Yes:
+                        self._executeOrder(rowTick, 'Sell')
+
+
     def dump(self, clicked = False):
         '''
         Sells the remaining stocks if there are any current purchases
@@ -405,11 +449,71 @@ class MainWindow(base, form):
 
             while len(ticksToSell) > 0:
                 ticker = ticksToSell.pop(0)
-                self.sell(ticker)
+                _executeOrder(ticker, orderType = 'Sell')
                 time.sleep(0.25)
 
         if not clicked:
             self.tradeActs()
+
+
+    def _executeOrder(self, ticker, orderType):
+        '''
+        Preforms the actual transaction, whether real or fake
+
+        Args:
+            ticker (Tick): ticker object being operated on
+            orderType (str): 'Buy' or 'Sell'
+
+        Returns:
+            None
+        '''
+        if orderType == 'Buy':
+            if not TESTING:
+                if float(self.buyingPower.text()) > transPrice:
+                    resp = self.trader.place_limit_buy_order(
+                        symbol = ticker.T, 
+                        time_in_force = 'GFD', 
+                        price = ticker.C, 
+                        quantity = ticker.PQ
+                    ).json()
+
+                    if resp['state'] in ['unconfirmed', 'queued']:
+                        logging.info('---- {} Added to MiddleMan, Waiting for Buy Confirmation ----'.format(ticker.T))
+                        ticker.transID = (resp['side'], resp['id'])
+                        self.midTicks.append(ticker)
+                        self.qTicks.remove(ticker)
+                        self.qModel.layoutChanged.emit()
+                    elif resp['state'] in ['partially_filled', 'filled']:
+                        self.purchase(ticker)
+                    else:
+                        logging.error('~~~~ Something Went Wrong With {}s Purchase ~~~~'.format(ticker.T))
+                        logging.error('~~~~ Robinhood Response for {}: {}'.format(ticker.T, resp['state']))
+                        self.revert(ticker, self.qTicks, self.hTicks)
+            else:
+                self.purchase(ticker)
+        else:
+            if not TESTING:
+                resp = self.trader.place_limit_buy_order(
+                    symbol = ticker.T, 
+                    time_in_force = 'GFD', 
+                    price = ticker.C, 
+                    quantity = ticker.PQ
+                ).json()
+
+                if resp['state'] in ['unconfirmed', 'queued']:
+                    logging.info('---- {} Added to MiddleMan, Waiting for Buy Confirmation ----'.format(ticker.T))
+                    ticker.transID = (resp['side'], resp['id'])
+                    self.midTicks.append(ticker)
+                    self.hTicks.remove(ticker)
+                    self.hModel.layoutChanged.emit()
+                elif resp['state'] in ['partially_filled', 'filled', 'confirmed']:
+                    self.sell(ticker)
+                else:
+                    logging.error('~~~~ Something Went Wrong With {}s Sale ~~~~'.format(ticker.T))
+                    logging.error('~~~~ Robinhood Response for {}: {}'.format(ticker.T, resp['state']))
+                    self.revert(ticker, self.qTicks, self.hTicks)
+            else:
+                self.sell(ticker)
 
 
     def revert(self, ticker, fromList, toList):
@@ -431,8 +535,7 @@ class MainWindow(base, form):
 
     def purchase(self, ticker, fromMidPrice = None):
         '''
-        Purchases the stock by removing it from the Queue, placing it on the Holding table and 
-        making the Robninhood call
+        "Purchases" the stock by removing it from the Queue, placing it on the Holding table 
 
         Args:
             ticker (Tick): Tick object of ticker we're actually purchasing
@@ -442,12 +545,13 @@ class MainWindow(base, form):
         '''
         try:
             #Takes the ticker, puts it in Holdings, remove it from Queue and adds the transaction to Transaction
+            self.qTicks.remove(ticker)
             self.transTable.bought(ticker)
             self.hTicks.append(ticker)
 
             if fromMidPrice:
                 self.midTicks.remove(ticker)
-                tprice = fromMidPrice
+                tPrice = fromMidPrice
             else:
                 tPrice = ticker.AP
             
@@ -468,8 +572,7 @@ class MainWindow(base, form):
 
     def sell(self, ticker, fromMidPrice = None):
         '''
-        Sells the stock by removing it from the Holding, placing it on the Queue, if re-buy and 
-        making the Robninhood call
+        "Sells" the stock by removing it from the Holding, placing it on the Queue, if re-buy
 
         Args:
             ticker (Tick): Tick object of ticker we're actually purchasing
@@ -498,14 +601,16 @@ class MainWindow(base, form):
             self.qTicks.append(ticker)
             self.qModel.layoutChanged.emit()
 
+        self.transTable.sold(ticker)
+
         ticker.close()
 
-        self.transTable.sold(ticker)
+        self.hTicks.remove(ticker)
+        
         
         return True
 
 
-    
     def update(self):
         '''
         The main function that gets called every X contains all the child
@@ -542,14 +647,17 @@ class MainWindow(base, form):
 
             for tick in self.midTicks:
                 if tick.transID:
-                    url = 'https://api.robinhood.com/orders' + '/' + tick.transID[1]
-                    res = requests.get(url, headers = headers).json()
-                    if tick.transID[0] == 'sell':
-                        if res['state'] in ['partially_filled', 'filled', 'confirmed']:
-                            self.sell(tick, fromMidPrice = float(res['price']))
-                    else:
-                        if res['state'] in ['partially_filled', 'filled']:
-                            self.purchase(tick, fromMidPrice = float(res['price']))
+                    try:
+                        url = 'https://api.robinhood.com/orders' + '/' + tick.transID[1]
+                        res = requests.get(url, headers = headers).json()
+                        if tick.transID[0] == 'sell':
+                            if res['state'] in ['partially_filled', 'filled', 'confirmed']:
+                                self.sell(tick, fromMidPrice = float(res['price']))
+                        else:
+                            if res['state'] in ['partially_filled', 'filled']:
+                                self.purchase(tick, fromMidPrice = float(res['price']))
+                    except Exception as e:
+                        logging.info('~~~~ Mid Check Error: {} ~~~~'.format(e))
 
 
         def _tickUpdate(curList):
@@ -591,7 +699,7 @@ class MainWindow(base, form):
             Returns:
                 None
             '''
-            if len(self.qTicks) > 0:
+            if len(self.qTicks):
                 _tickUpdate('Queue')
 
             #If actually trading, iterate through Queue and if the projected cost doesn't exceed budget see if
@@ -606,29 +714,7 @@ class MainWindow(base, form):
                                 purPrice = self.purPrice.value(), 
                                 spy = self.spy
                             ):
-                                if not TESTING:
-                                    if float(self.buyingPower.text()) > transPrice:
-                                        resp = self.trader.place_limit_buy_order(
-                                            symbol = tick.T, 
-                                            time_in_force = 'GFD', 
-                                            price = tick.C, 
-                                            quantity = tick.PQ
-                                        ).json()
-
-                                        if resp['state'] in ['unconfirmed', 'queued']:
-                                            logging.info('---- {} Added to MiddleMan, Waiting for Buy Confirmation ----'.format(tick.T))
-                                            tick.transID = (resp['side'], resp['id'])
-                                            self.midTicks.append(tick)
-                                            self.qTicks.remove(tick)
-                                            self.qModel.layoutChanged.emit()
-                                        elif resp['state'] in ['partially_filled', 'filled']:
-                                            self.purchase(tick)
-                                        else:
-                                            logging.error('~~~~ Something Went Wrong With {}s Purchase ~~~~'.format(tick.T))
-                                            logging.error('~~~~ Robinhood Response for {}: {}'.format(tick.T, resp['state']))
-                                            self.revert(tick, self.qTicks, self.hTicks)
-                                else:
-                                    self.purchase(tick)
+                                self._executeOrder(tick, orderType = 'Buy')
                     except TypeError:
                         pass                                   
 
@@ -653,33 +739,12 @@ class MainWindow(base, form):
                         logging.info('Hold {}'.format(tick.T))
                         if tick.toSell(
                             purPrice = self.purPrice.value(), 
-                            spy = self.spy 
+                            spy = self.spy
                         ):
-                            if not TESTING:
-                                resp = self.trader.place_limit_buy_order(
-                                    symbol = tick.T, 
-                                    time_in_force = 'GFD', 
-                                    price = tick.C, 
-                                    quantity = tick.PQ
-                                ).json()
-
-                                if resp['state'] in ['unconfirmed', 'queued']:
-                                    logging.info('---- {} Added to MiddleMan, Waiting for Buy Confirmation ----'.format(tick.T))
-                                    tick.transID = (resp['side'], resp['id'])
-                                    self.midTicks.append(tick)
-                                    self.hTicks.remove(tick)
-                                    self.hModel.layoutChanged.emit()
-                                elif resp['state'] in ['partially_filled', 'filled', 'confirmed']:
-                                    self.sell(tick)
-                                else:
-                                    logging.error('~~~~ Something Went Wrong With {}s Sale ~~~~'.format(tick.T))
-                                    logging.error('~~~~ Robinhood Response for {}: {}'.format(tick.T, resp['state']))
-                                    self.revert(tick, self.qTicks, self.hTicks)
-                            else:
-                                self.sell(tick)
+                            self._executeOrder(tick, 'Sell')
 
 
-        #Robinhood portfolio, creates an empty one if an error is thrown
+        #Robinhood portfolio and account info, creates an empty one if an error is thrown
         #such as having 0 in the portfolio
         try:
             self.portfolio = self.trader.portfolios()
@@ -695,7 +760,6 @@ class MainWindow(base, form):
                 'start_of_day_dtbp' : 0,
                 'unallocated_margin_cash': 0
             }
-
         except (requests.exceptions.ConnectionError, requests.exceptions.HTTPError, TimeoutError) as e:
             logging.info('~~~~ Connection Error: {} ~~~~'.format(e))
             return
@@ -706,7 +770,7 @@ class MainWindow(base, form):
         now = datetime.datetime.now(self.tz).time()
         
         #Set the Equity to current value depending on if it's aH or not
-        if self.afterHours():
+        if self.afterHours(now):
             self.equity.setText('%.2f' % (float(self.portfolio['extended_hours_equity'])))
 
             #Disable Trading aH
@@ -718,8 +782,8 @@ class MainWindow(base, form):
             self.equity.setText('%.2f' % (float(self.portfolio['equity'])))
 
             if self.portfolio['equity']:
+
                 #Plt that stuff if it's during the trading day
-                
                 self.graphData[0].append(now.strftime('%H:%M:%S'))
                 self.graphData[1].append(float(self.portfolio['equity']))
 
@@ -741,7 +805,9 @@ class MainWindow(base, form):
 
                 #Safety-net for SEC guideline of >25000 on Non-Margin for day trading
                 if self.marginSpin.value() < float(self.equity.text()) < self.marginSpin.value() + 100:
-                    self.warn('Near Thresh')
+                    if self.notYetWarned:
+                        self.warn('Near Thresh')
+                        self.notYetWarned = False
                 if float(self.equity.text()) < self.marginSpin.value():
                     logging.info('~~~~ Equity Fell Below Threshold ~~~~')
                     self.warn('Below Thresh')
@@ -750,7 +816,7 @@ class MainWindow(base, form):
             self.purPrice.setMaximum(float(self.cash.text()))
 
         else:
-            #Allow for dumping of stocks at end of the day if just testing
+            #Allow for dumping of stocks at end of the day if just testing, if testing AH doesn't auto dump
             if not self.startBut.isEnabled():
                 if self.startTime < datetime.time(hour = 16, minute = 0, second = 0, tzinfo = self.tz):
                     if now > datetime.time(hour = 15, minute = 58, second = 0, tzinfo = self.tz):

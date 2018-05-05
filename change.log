@@ -1,6 +1,16 @@
 # Changelog
 
 
+## KStock V1.01 - 04 May 18
+
+### Added
+- Context menu for Holdings table
+
+### Changed
+- Some RH execution bugs
+- Consolidated some code to make it a little more streamlined
+
+===============================================================
 
 ## KStock V1.0 - 02 May 18
 
